@@ -1,9 +1,14 @@
-import json,time,dotenv,os,ipaddress,datetime
+import json,time,dotenv,os,ipaddress,datetime,argparse
 from censys.asm import Risks, HostsAssets
 from collections import defaultdict
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--old",help="Bool to use new or old data",action="store_true")
+args = parser.parse_args()
+
 quiet = True
-UseOld = True
+UseOld = args.old
 
 dotenv.load_dotenv()
 asm_api = os.getenv('ASM_API')
@@ -275,18 +280,18 @@ comparison_df['Tags'] = comparison_df['ID'].apply(get_tags)
 
 # Hardcoded dict for special tags with specific colors
 special_tags = {
-    "Disassociated": {"color": "red"},
+    "Disassociated": {"color":"red"}
     # Add more tags with their colors here
+}
+
+# Example tag ranking dictionary
+tag_rank = {
+    "Disassociated":1000
+    # Add more tags here as needed
 }
 
 # Select only the columns you want to keep
 comparison_df = comparison_df[['ID', 'Tags', 'Service', 'Risk', '_merge']]
-
-# Example tag ranking dictionary
-tag_rank = {
-    "Disassociated": -50,
-    # Add more tags here as needed
-}
 
 # Set a hard-coded value for unknown tags
 unknown_tag_value = -100
@@ -310,7 +315,7 @@ merge_order = ['right_only', 'both', 'left_only']
 comparison_df['_merge'] = pd.Categorical(comparison_df['_merge'], categories=merge_order, ordered=True)
 
 # Now sort by _merge, tag_value, and then Service
-comparison_df = comparison_df.sort_values(by=['_merge', 'tag_value', 'Service'], ascending=[True, True, True])
+comparison_df = comparison_df.sort_values(by=['_merge', 'tag_value', 'ID', 'Service'], ascending=[True, True, True, True])
 
 # Optionally reset index if desired
 comparison_df.reset_index(drop=True, inplace=True)
@@ -339,7 +344,8 @@ def highlight_diff(row):
 styled_df = comparison_df.style.apply(highlight_diff, axis=1)
 
 # Drop the '_merge' column after applying the styling
-comparison_df_final = comparison_df.drop('_merge', axis=1)
+#comparison_df_final = comparison_df.drop('_merge', axis=1)
+comparison_df_final = comparison_df
 
 # Save the styled DataFrame as HTML with custom styles for black background and white text
 html_output = styled_df.to_html()
@@ -379,3 +385,33 @@ with open('comparison_output.json', 'w') as json_file:
 
 print("Comparison complete. Check 'comparison_output.html' for the diff.")
 
+#Tagging Begin
+print("Begin Tagging")
+counter = 0 
+excludetaglist = [
+        #Put tags here you want to exclude
+]
+
+for datapoint in json_output:
+    if datapoint["_merge"] == "right_only":
+        hosted = False
+        ip_tag = ""
+        try:
+            ip_tag = str(ipaddress.IPv4Address(datapoint["ID"]))
+            hosted = True
+        except:
+            hosted = False
+        if hosted:
+            try:
+                if datapoint["Tags"] == "":
+                    print(f"\nTagged\nHost:{ip_tag}\nReason:Tags Empty")
+                    h.add_tag(asset_id=ip_tag,name="") #Add Tag Name Here
+                    counter+=1
+                elif all(tag not in datapoint['Tags'] for tag in excludetaglist):
+                    print(f"\nTagged\nHost:{ip_tag}\nReason:Tags Not In Exclusion")
+                    h.add_tag(asset_id=ip_tag,name="") #Add Tag Name Here
+                    counter+=1
+            except:
+                pass
+
+print(f"\nTagging Complete\nApplied: {counter} Tags")
